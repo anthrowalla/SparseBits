@@ -1,0 +1,14 @@
+# Build outputs
+bin/
+dist/
+
+# macOS
+.DS_Store
+*/.DS_Store
+
+# IDE
+.idea/
+*.iml
+.settings/
+.project
+.classpath
