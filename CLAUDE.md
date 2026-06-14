@@ -2,6 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Project
+
+**SparseBits** - Hierarchical bitmap library for efficient set operations on sparse data, supporting billions of entities with configurable depth.
+
+Repository: https://github.com/anthrowalla/SparseBits
+
 ## Build Commands
 
 ```bash
@@ -16,6 +22,9 @@ ant run
 
 # Clean build artifacts
 ant clean
+
+# Run R2Bitmap tests
+javac -d bin -sourcepath src src/org/csac/bits/R2Bitmap.java src/org/csac/bits/RBitmap.java src/org/csac/bits/EntityType.java src/org/csac/bits/BitProcessor.java src/TestR2Bitmap.java && java -cp bin TestR2Bitmap
 ```
 
 The project uses Apache Ant for building (build.xml). The main class is `Bitmap_Java` which launches the `Frame2` GUI application. The final JAR is created at `dist/Bitnets-030.jar`.
@@ -24,21 +33,19 @@ The project uses Apache Ant for building (build.xml). The main class is `Bitmap_
 
 This is a hierarchical bitmap manipulation library for efficient set operations on sparse data. All bitmap classes are in the `org.csac.bits` package.
 
-### Bitmap Hierarchy
+### Recursive Bitmap Structure (Current)
 
-#### New Recursive Structure (Recommended)
+#### RBitmap - 1D Recursive Bitmap
 
-**RBitmap** (src/org/csac/bits/RBitmap.java) - New recursive bitmap with configurable depth
+**File**: `src/org/csac/bits/RBitmap.java`
 
 ```java
 // Capacity examples (each level multiplies by 64):
 new RBitmap(0)  // 4,096 bits       (leaf: 64 blocks × 64 bits)
 new RBitmap(1)  // 262,144 bits     (64 × 4,096)
-new RBitmap(2)  // 16,777,216 bits   (64 × 262,144)
-new RBitmap(3)  // 1,073,741,824 bits
-new RBitmap(4)  // 68,719,476,736 bits
-new RBitmap(5)  // 4,398,046,511,104 bits
-new RBitmap(6)  // 281,474,976,710,656 bits (supports >2.6 billion entities)
+new RBitmap(2)  // 16.7M bits       (64 × 262,144)
+new RBitmap(3)  // 1.07B bits       (supports ~1 billion entities)
+new RBitmap(6)  // 281T bits        (supports >2.6 billion entities)
 ```
 
 **Operations:**
@@ -53,45 +60,70 @@ new RBitmap(6)  // 281,474,976,710,656 bits (supports >2.6 billion entities)
 - Sparse: `long itsHeader` indicates which 64 child positions are non-null
 - Inverted: `boolean isInverted` for lazy NOT
 
-#### Legacy Fixed Hierarchy (Original)
+#### R2Bitmap - 2D Recursive Bitmap (Relations)
 
-1. **JBits** - Lowest level (64×64 = 4,096 bits max)
-   - Stores bits in a `long[]` array
-   - Uses a header (`long`) to indicate which 64-bit blocks are non-zero
-   - Supports and, or, xor, not operations
+**File**: `src/org/csac/bits/R2Bitmap.java`
 
-2. **JxBits** - Mid-level (64×4,096 = 262,144 bits max)
-   - Array of JBits (up to 64 elements)
-   - Header indicates which JBits blocks are non-zero
-   - Implements `BitProcessor` for iteration
+```java
+// Capacity examples for 2D relations (cells = dimension²):
+new R2Bitmap(0)  // 64×64 = 4,096 cells       (64 persons)
+new R2Bitmap(1)  // 4,096×4,096 = 16.7M cells (4,096 persons)
+new R2Bitmap(2)  // 262K×262K = 68.7B cells  (262,144 persons)
+new R2Bitmap(3)  // 16.7M×16.7M = 281T cells (16.7M persons)
+```
 
-3. **JBitmap** - Matrix level (64 rows of JxBits)
-   - Each row is a JxBits
-   - Used for building matrices
+**Operations:**
+- `setBit(row, col)`, `clearBit(row, col)`, `isBitSet(row, col)` - Cell manipulation
+- `and(other)`, `or(other)`, `xor(other)`, `not()` - Set operations
+- `count()` - Count set cells
+- `capacity()` - Total cell capacity
+- `getDimensionCapacity()` - Entities per dimension
 
-4. **JmBitmap** - Higher matrix level (64 rows of JBitmap)
-   - Array of JBitmap
-   - Supports `collapse()` for reducing dimensions
+**Structure:**
+- Depth 0 (leaf): Single RBitmap stores 64×64 cells
+- Depth N (internal): 64×64 grid of R2Bitmap(depth-1) nodes
+- Sparse: `headerBlock[64]` tracks which 4,096 positions are non-null
+- Inverted: `boolean isInverted` for lazy NOT
 
-5. **JxBitmap** - Top level for relations
-   - Array of JmBitmap (up to 64)
-   - Supports `pipe()` (composition), `filter()`, and `reverse()` operations
+**Implemented:**
+- Basic operations (setBit, isBitSet, and, or, xor, not, count)
+- setBits(long[]) - bulk set multiple columns for a row
 
-All levels support sparse representation through headers and lazy allocation.
+**TODO (see TODO.md):**
+- getBits(row) - extract row as RBitmap
+- readBits(row) - extract row as Property
+- setBits(row, Property) - bulk set row from Property
+- Advanced Relation operations (pipe, filter, reverse, reduce, collapse, union)
+
+#### Legacy Fixed Hierarchy (Reference Only)
+
+The following classes use fixed-depth hierarchy and are kept for reference:
+- **JBits** - Lowest level (64×64 = 4,096 bits)
+- **JxBits** - Mid-level (64×4,096 = 262,144 bits)
+- **JBitmap** - Matrix level (64 rows of JxBits)
+- **JmBitmap** - Higher matrix level with collapse()
+- **JxBitmap** - Top level for relations with pipe/filter/reverse
+
+These serve as reference implementations for stubbed methods in R2Bitmap.
 
 ### Domain Objects
 
-- **EntityType** - Defines a vocabulary of named entities with bidirectional name-to-ID mapping. Entities are stored in a static registry.
+- **EntityType** - Defines a vocabulary of named entities with bidirectional name-to-ID mapping. Entities are stored in a static registry. Use for organizing person names, concepts, or any entity type.
 
-- **Property** - Associates a JxBits with an EntityType. Represents a property that a set of entities may have (e.g., "isRed"). Supports operations like and/or/xor between Properties of the same EntityType.
+- **Property** - Associates an RBitmap with an EntityType. Represents a property that a set of entities may have (e.g., "isRed", "isFemale"). Supports operations like and/or/xor between Properties of the same EntityType. Default depth is 3 (~262K capacity).
 
-- **Relation** - A 2D bitmap (JxBitmap) connecting two EntityTypes (rowType and colType). Represents relationships between entities. Supports:
-  - `and/or/xor` between Relations of same types
-  - `pipe()` - relation composition (A→B composed with B→C = A→C)
-  - `filter()` - filter rows by a Property
-  - `reverse()` - transpose the relation
-  - `maskAnd/maskOr/maskXor()` - reduce using a Property
-  - `unionAnd/unionOr/unionXor()` - collapse to a Property
+- **Relation** - A 2D R2Bitmap connecting two EntityTypes (rowType and colType). Represents relationships between entities (e.g., "daughterOf", "livesIn"). Default depth is 2 (262K×262K capacity). Supports:
+  - `and/or/xor/not` - Set operations between Relations of same types
+  - `setBit/readBit` - Individual cell access
+  - `setBits(long[])` - Bulk set multiple columns for a row
+  - `copy/not` - Copy and negate operations
+
+**TODO (see TODO.md):**
+- `pipe()` - Relation composition (A→B composed with B→C = A→C)
+- `filter()` - Filter rows by a Property
+- `reverse()` - Transpose the relation (swap rows/columns)
+- `reduce()` / `maskAnd/maskOr/maskXor()` - Row-wise operations
+- `collapse()` / `unionAnd/Or/Xor()` - Collapse rows to Property
 
 ### Key Interfaces
 
@@ -100,23 +132,27 @@ All levels support sparse representation through headers and lazy allocation.
 
 ### Utilities
 
-- **BitHelper** - Iterator for traversing set bits in a JxBits
-- **BitVector** - Vector subclass for storing JxBits collections
+- **BitHelper** - Iterator for traversing set bits in JxBits (legacy)
+- **BitVector** - Vector subclass for storing JxBits collections (legacy)
 - **Allocater** - Simple allocator (placeholder)
 
 ### Sparse Representation Pattern
 
-All bitmap classes use:
-- `long itsHeader` - bitset indicating which blocks are non-null
-- Array of child objects (only for non-zero blocks)
-- `boolean isInverted` - lazy NOT operation support
-- Static accumulator arrays (`bacc1[]`, `bah1`) for operation results
+All recursive bitmap classes use:
+- Branching factor of 64 (based on long word size)
+- Header bits indicate which child positions are non-null
+- Only allocate children for non-empty branches
+- `boolean isInverted` for lazy NOT (no actual bit flipping)
+
+**RBitmap**: `long itsHeader` (64 bits → 64 child positions)
+**R2Bitmap**: `long headerBlock[64]` (4,096 bits → 4,096 child positions)
 
 ### Naming Conventions
 
 - Internal state fields prefixed with `its` (e.g., `itsHeader`, `itsBits`)
-- Bitmap class names: `JBits`, `JxBits`, `JBitmap`, `JmBitmap`, `JxBitmap`
-- Constants in UPPER_SNAKE_CASE or prefixed with underscore (e.g., `_nbits`, `_maxbits`)
+- Recursive classes: `RBitmap` (1D), `R2Bitmap` (2D)
+- Legacy classes: `JBits`, `JxBits`, `JBitmap`, `JmBitmap`, `JxBitmap`
+- Constants: `BRANCH = 64` (branching factor)
 
 ## GUI
 
@@ -125,27 +161,27 @@ The `Frame2` class is an AWT-based GUI for testing bitmap operations. It creates
 ## Sparse Efficiency
 
 For sparse data (1-2% density at 2.6B scale):
-- Only ~26 million actual bits stored vs 2.6B capacity (0.001% storage)
+- Only ~52 million bits stored vs 281 trillion capacity (0.00002% storage)
 - Memory usage scales with set bits, not total capacity
 - Empty branches are single null checks
 - Set operations (and/or/xor) skip empty branches efficiently
 
-## Migration to RBitmap
+## Implementation Notes
 
-To migrate from the legacy hierarchy to RBitmap:
+### Critical Bug Fix (RBitmap AND operation)
 
-1. **Replace JxBits:**
-   ```java
-   // Old:
-   JxBits bits = new JxBits();
+The AND operation in RBitmap had a bug where `resultHeader |= (1L << resultCount)` was using `resultCount` instead of the original `bitPos`. Fixed to use `(1L << bitPos)` to correctly set header bits at their original positions.
 
-   // New (similar capacity):
-   RBitmap bits = new RBitmap(3);  // ~262K capacity
-   RBitmap bits = new RBitmap(6);  // >2.6B capacity
-   ```
+### Recursive Design Principles
 
-2. **API Compatibility:** Most operations have the same names and signatures
+1. **Depth-based capacity**: Each level multiplies capacity by 64
+2. **Sparse navigation**: Use headers to skip empty branches
+3. **Lazy inversion**: `isInverted` flag avoids actual bit flipping
+4. **Branching factor**: Fixed at 64 (based on long word size)
 
-3. **Performance:** RBitmap uses the same sparse representation principles, so performance characteristics are similar
+## TODO
 
-4. **Testing:** Run `javac -d bin -sourcepath src src/org/csac/bits/RBitmap.java src/TestRBitmap.java && java -cp bin TestRBitmap`
+See `TODO.md` for detailed implementation roadmap for stubbed methods:
+- Core Relation operations: pipe, filter, reverse, reduce
+- Row operations: getBits, readBits, setBits
+- Collapse operations: collapse, unionAnd/Or/Xor
