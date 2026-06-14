@@ -66,6 +66,31 @@ The following methods are stubbed with TODO notes and need implementation for th
 
 ---
 
+### Collapse Operations (Row Reduction)
+
+#### `collapse(int PRED)`
+**Purpose**: Collapse all rows into a single RBitmap using bitwise operations
+
+**Parameters**:
+- `PRED`: 0=AND, 1=OR, 2=XOR (Relation.AND, Relation.OR, Relation.XOR)
+
+**Reference**: See `JxBitmap.java` collapse() implementation (~line 126-156)
+
+**Implementation Strategy**:
+```
+AND: For each column, set bit only if ALL rows have it set
+OR:  For each column, set bit if ANY row has it set
+XOR: For each column, set bit if odd number of rows have it set
+```
+
+**Key Points**:
+- Core operation that union methods call
+- For AND: early exit if accumulator becomes empty
+- Sparse: skip empty rows entirely
+- Returns RBitmap (use Property wrapper for EntityType context)
+
+---
+
 ### Union Operations (Collapse to Property)
 
 #### `unionAnd()`, `unionOr()`, `unionXor()`
